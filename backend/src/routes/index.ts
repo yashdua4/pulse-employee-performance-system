@@ -8,6 +8,8 @@ import departmentRoutes from './department.routes.js';
 import leaveRoutes from './leave.routes.js';
 import notificationRoutes from './notification.routes.js';
 import analyticsRoutes from './analytics.routes.js';
+import securityRoutes from './security.routes.js';
+import sessionRoutes from './session.routes.js';
 import { getDashboardStats } from '../controllers/dashboard.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
@@ -22,6 +24,8 @@ router.use('/departments', departmentRoutes);
 router.use('/leaves', leaveRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/analytics', analyticsRoutes);
+router.use('/security', securityRoutes);
+router.use('/sessions', sessionRoutes);
 
 router.get('/dashboard/stats', authenticate, getDashboardStats);
 

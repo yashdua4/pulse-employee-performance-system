@@ -1,8 +1,7 @@
 import { Request, Response } from 'express';
-import { PrismaClient, Role, ProjectStatus, ProjectPriority, TaskStatus } from '@prisma/client';
+import { Role, ProjectStatus, ProjectPriority, TaskStatus } from '@prisma/client';
+import { prisma } from '../lib/prisma.js';
 import { logAction } from '../utils/audit.js';
-
-const prisma = new PrismaClient();
 
 // Helper to create member notification
 const createNotification = async (userId: string, title: string, message: string, type: string) => {
@@ -185,7 +184,12 @@ export const createProject = async (req: Request, res: Response) => {
     });
 
     // Write Audit Log
-    await logAction(req.user?.id, 'PROJECT_CREATE', null, { id: project.id, name: project.name });
+    await logAction(req.user?.id, 'PROJECT_CREATE', null, { id: project.id, name: project.name }, {
+      req,
+      userEmail: req.user?.email,
+      targetEntity: 'Project',
+      targetId: project.id,
+    });
 
     // Send Notification to members
     if (memberIds && Array.isArray(memberIds)) {
@@ -264,7 +268,13 @@ export const updateProject = async (req: Request, res: Response) => {
       req.user?.id, 
       'PROJECT_UPDATE', 
       { name: project.name, status: project.status }, 
-      { name: updatedProject.name, status: updatedProject.status }
+      { name: updatedProject.name, status: updatedProject.status },
+      {
+        req,
+        userEmail: req.user?.email,
+        targetEntity: 'Project',
+        targetId: id,
+      }
     );
 
     return res.json(updatedProject);
@@ -298,7 +308,12 @@ export const deleteProject = async (req: Request, res: Response) => {
     });
 
     // Write Audit Log
-    await logAction(req.user?.id, 'PROJECT_DELETE', { id, name: project.name }, null);
+    await logAction(req.user?.id, 'PROJECT_DELETE', { id, name: project.name }, null, {
+      req,
+      userEmail: req.user?.email,
+      targetEntity: 'Project',
+      targetId: id,
+    });
 
     return res.json({ message: 'Project deleted successfully (soft-deleted)' });
   } catch (error: any) {
@@ -339,7 +354,12 @@ export const createTask = async (req: Request, res: Response) => {
       },
     });
 
-    await logAction(req.user?.id, 'TASK_CREATE', null, { id: task.id, title: task.title });
+    await logAction(req.user?.id, 'TASK_CREATE', null, { id: task.id, title: task.title }, {
+      req,
+      userEmail: req.user?.email,
+      targetEntity: 'Task',
+      targetId: task.id,
+    });
 
     // Notify assignee
     if (assigneeId) {
@@ -399,7 +419,12 @@ export const updateTask = async (req: Request, res: Response) => {
       },
     });
 
-    await logAction(req.user?.id, 'TASK_UPDATE', { id: taskId, status: task.status }, { status: updated.status });
+    await logAction(req.user?.id, 'TASK_UPDATE', { id: taskId, status: task.status }, { status: updated.status }, {
+      req,
+      userEmail: req.user?.email,
+      targetEntity: 'Task',
+      targetId: taskId,
+    });
 
     return res.json(updated);
   } catch (error: any) {
@@ -429,7 +454,12 @@ export const deleteTask = async (req: Request, res: Response) => {
       data: { deletedAt: new Date() },
     });
 
-    await logAction(req.user?.id, 'TASK_DELETE', { id: taskId, title: task.title }, null);
+    await logAction(req.user?.id, 'TASK_DELETE', { id: taskId, title: task.title }, null, {
+      req,
+      userEmail: req.user?.email,
+      targetEntity: 'Task',
+      targetId: taskId,
+    });
 
     return res.json({ message: 'Task deleted successfully (soft-deleted)' });
   } catch (error: any) {

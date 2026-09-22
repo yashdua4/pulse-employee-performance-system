@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { 
   signup, 
   login, 
+  loginWithMfa,
   refreshTokenRotation, 
   changePassword, 
   forgotPassword, 
@@ -15,6 +16,7 @@ const router = Router();
 
 router.post('/signup', signup);
 router.post('/login', login);
+router.post('/login/mfa', loginWithMfa);
 router.post('/refresh', refreshTokenRotation);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);

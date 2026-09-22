@@ -1,16 +1,19 @@
+.env
+.env.*
+backend/.env
+frontend/.env
+node_modules/
+**/node_modules/
+dist/
+backend/dist/
 node_modules/
 **/node_modules/
 
 .env
 .env.*
 
-backend/.env
-frontend/.env
-
 dist/
 build/
 
 .vscode/
-.idea/
-
-*.log
+.idea/s

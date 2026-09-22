@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { Lock, Mail, Activity, Eye, EyeOff } from 'lucide-react';
+import { Lock, Mail, Activity, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 
 export const Login: React.FC = () => {
-  const { login } = useAuthStore();
+  const { login, verifyMfaLogin } = useAuthStore();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [otp, setOtp] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [requiresMfa, setRequiresMfa] = useState(false);
   
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -29,8 +31,30 @@ export const Login: React.FC = () => {
 
     if (res.success) {
       navigate('/');
+    } else if (res.requiresMfa) {
+      setRequiresMfa(true);
+      setError('Enter the 6-digit code from your authenticator app to finish signing in.');
     } else {
       setError(res.error || 'Invalid credentials');
+    }
+  };
+
+  const handleVerifyMfa = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!otp) {
+      setError('Please enter your MFA code');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    const res = await verifyMfaLogin(otp);
+    setLoading(false);
+
+    if (res.success) {
+      navigate('/');
+    } else {
+      setError(res.error || 'Invalid OTP');
     }
   };
 
@@ -58,6 +82,7 @@ export const Login: React.FC = () => {
           </div>
         )}
 
+        {!requiresMfa ? (
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Email input */}
           <div className="space-y-2">
@@ -111,6 +136,56 @@ export const Login: React.FC = () => {
             {loading ? 'Signing In...' : 'Sign In'}
           </button>
         </form>
+        ) : (
+        <form onSubmit={handleVerifyMfa} className="space-y-6">
+          <div className="p-4 rounded-2xl border border-emerald-900/40 bg-emerald-950/20 text-emerald-300 text-sm">
+            <div className="flex items-center gap-2 font-semibold">
+              <ShieldCheck className="h-4 w-4" />
+              <span>Multi-factor verification required</span>
+            </div>
+            <p className="mt-2 text-xs text-emerald-200/80">
+              Use your authenticator app to verify this login before a session is created.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">One-Time Passcode</label>
+            <div className="relative">
+              <ShieldCheck className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-500" />
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="123456"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                className="w-full pl-12 pr-4 py-3 bg-slate-950 border border-slate-800/80 rounded-2xl focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 text-slate-100 text-sm outline-none transition-all duration-200 tracking-[0.3em]"
+                required
+              />
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3.5 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-2xl font-semibold text-sm shadow-xl shadow-emerald-500/10 active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:pointer-events-none cursor-pointer mt-2"
+          >
+            {loading ? 'Verifying...' : 'Verify And Sign In'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setRequiresMfa(false);
+              setOtp('');
+              setError(null);
+            }}
+            className="w-full py-3 px-4 bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-300 rounded-2xl font-semibold text-sm transition-all duration-150 cursor-pointer"
+          >
+            Back To Password Step
+          </button>
+        </form>
+        )}
 
         <div className="mt-8 text-center">
           <p className="text-sm text-slate-400">

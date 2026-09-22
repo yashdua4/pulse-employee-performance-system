@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
-import { PrismaClient, Role, ReviewStatus } from '@prisma/client';
+import { Role, ReviewStatus } from '@prisma/client';
+import { prisma } from '../lib/prisma.js';
 import { logAction } from '../utils/audit.js';
-
-const prisma = new PrismaClient();
+import { recordDataAccess } from '../utils/security.js';
 
 // Helper to create notifications
 const createNotification = async (userId: string, title: string, message: string, type: string) => {
@@ -83,6 +83,17 @@ export const getAllReviews = async (req: Request, res: Response) => {
       });
     }
 
+    await recordDataAccess({
+      viewerId: req.user.id,
+      viewerEmail: req.user.email,
+      resource: 'PERFORMANCE_REVIEW',
+      resourceId: 'LIST',
+      metadata: {
+        count: reviews.length,
+        role,
+      },
+    });
+
     return res.json(reviews);
   } catch (error: any) {
     return res.status(500).json({ message: 'Error retrieving reviews', error: error.message });
@@ -124,6 +135,17 @@ export const getReviewById = async (req: Request, res: Response) => {
         return res.status(403).json({ message: 'Forbidden: Access denied to this review' });
       }
     }
+
+    await recordDataAccess({
+      viewerId: req.user?.id,
+      viewerEmail: req.user?.email,
+      resource: 'PERFORMANCE_REVIEW',
+      resourceId: review.id,
+      metadata: {
+        revieweeId: review.revieweeId,
+        status: review.status,
+      },
+    });
 
     return res.json(review);
   } catch (error: any) {
@@ -190,7 +212,12 @@ export const createReview = async (req: Request, res: Response) => {
       },
     });
 
-    await logAction(req.user.id, 'REVIEW_CREATE', null, { id: review.id, rating: overallRating });
+    await logAction(req.user.id, 'REVIEW_CREATE', null, { id: review.id, rating: overallRating }, {
+      req,
+      userEmail: req.user.email,
+      targetEntity: 'PerformanceReview',
+      targetId: review.id,
+    });
 
     // Send Notification to Employee if submitted
     if (status === 'SUBMITTED') {
@@ -251,7 +278,12 @@ export const updateReview = async (req: Request, res: Response) => {
         data: { status: ReviewStatus.ACKNOWLEDGED },
       });
 
-      await logAction(req.user.id, 'REVIEW_ACKNOWLEDGE', { id }, { status: 'ACKNOWLEDGED' });
+      await logAction(req.user.id, 'REVIEW_ACKNOWLEDGE', { id }, { status: 'ACKNOWLEDGED' }, {
+        req,
+        userEmail: req.user.email,
+        targetEntity: 'PerformanceReview',
+        targetId: id,
+      });
 
       return res.json(updated);
     }
@@ -293,7 +325,12 @@ export const updateReview = async (req: Request, res: Response) => {
       data: updateData,
     });
 
-    await logAction(req.user?.id, 'REVIEW_UPDATE', { id, rating: review.overallRating }, { rating: overallRating });
+    await logAction(req.user?.id, 'REVIEW_UPDATE', { id, rating: review.overallRating }, { rating: overallRating }, {
+      req,
+      userEmail: req.user?.email,
+      targetEntity: 'PerformanceReview',
+      targetId: id,
+    });
 
     // Notify employee if status is changed from DRAFT to SUBMITTED
     if (review.status === 'DRAFT' && status === 'SUBMITTED') {
@@ -326,7 +363,12 @@ export const deleteReview = async (req: Request, res: Response) => {
 
     await prisma.performanceReview.delete({ where: { id } });
 
-    await logAction(req.user?.id, 'REVIEW_DELETE', { id }, null);
+    await logAction(req.user?.id, 'REVIEW_DELETE', { id }, null, {
+      req,
+      userEmail: req.user?.email,
+      targetEntity: 'PerformanceReview',
+      targetId: id,
+    });
 
     return res.json({ message: 'Performance review deleted successfully' });
   } catch (error: any) {

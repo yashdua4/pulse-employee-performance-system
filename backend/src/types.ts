@@ -6,6 +6,7 @@ export interface AuthUser {
   role: Role;
   employeeId?: string; // Employee ID
   name?: string; // Employee Name
+  sessionId?: string;
 }
 
 declare global {

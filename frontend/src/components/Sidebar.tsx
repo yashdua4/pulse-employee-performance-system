@@ -11,6 +11,8 @@ import {
   PlaneTakeoff,
   BarChart3,
   ShieldAlert,
+  ShieldCheck,
+  Shield,
   Bell,
   Check
 } from 'lucide-react';
@@ -40,6 +42,7 @@ export const Sidebar: React.FC = () => {
     { to: '/attendance', name: 'Attendance', icon: CalendarRange },
     { to: '/performance', name: 'Performance', icon: Award },
     { to: '/leaves', name: 'Leaves', icon: PlaneTakeoff },
+    { to: '/security', name: 'Security', icon: ShieldCheck },
   ];
 
   if (user.role === 'ADMIN' || user.role === 'MANAGER') {
@@ -48,6 +51,9 @@ export const Sidebar: React.FC = () => {
   }
 
   if (user.role === 'ADMIN') {
+    links.push({ to: '/security/dashboard', name: 'Security Ops', icon: Shield });
+    links.push({ to: '/security/status', name: 'Status Center', icon: ShieldCheck });
+    links.push({ to: '/security/permissions', name: 'Permissions', icon: ShieldAlert });
     links.push({ to: '/audit-logs', name: 'Audit Logs', icon: ShieldAlert });
   }
 

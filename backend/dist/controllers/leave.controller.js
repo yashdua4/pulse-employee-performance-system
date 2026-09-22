@@ -2,12 +2,13 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getLeaveBalances = exports.getLeaveRequests = exports.rejectLeave = exports.approveLeave = exports.cancelLeave = exports.applyLeave = void 0;
 const client_1 = require("@prisma/client");
+const prisma_js_1 = require("../lib/prisma.js");
 const audit_js_1 = require("../utils/audit.js");
-const prisma = new client_1.PrismaClient();
+const security_js_1 = require("../utils/security.js");
 // Helper to notify
 const createNotification = async (userId, title, message, type) => {
     try {
-        await prisma.notification.create({
+        await prisma_js_1.prisma.notification.create({
             data: { userId, title, message, type },
         });
     }
@@ -34,7 +35,7 @@ const applyLeave = async (req, res) => {
         if (diffDays > 90) {
             return res.status(400).json({ message: 'Leave request span cannot exceed 90 days per application' });
         }
-        const employee = await prisma.employee.findUnique({
+        const employee = await prisma_js_1.prisma.employee.findUnique({
             where: { id: req.user.employeeId },
         });
         if (!employee) {
@@ -51,7 +52,7 @@ const applyLeave = async (req, res) => {
         if (lType === client_1.LeaveType.EARNED && employee.earnedBalance < diffDays) {
             return res.status(400).json({ message: `Insufficient Earned leave balance. Available: ${employee.earnedBalance}, Requested: ${diffDays}` });
         }
-        const leave = await prisma.leaveRequest.create({
+        const leave = await prisma_js_1.prisma.leaveRequest.create({
             data: {
                 employeeId: req.user.employeeId,
                 leaveType: lType,
@@ -64,10 +65,15 @@ const applyLeave = async (req, res) => {
                 employee: true,
             },
         });
-        await (0, audit_js_1.logAction)(req.user.id, 'LEAVE_APPLY', null, { id: leave.id, leaveType: lType });
+        await (0, audit_js_1.logAction)(req.user.id, 'LEAVE_APPLY', null, { id: leave.id, leaveType: lType }, {
+            req,
+            userEmail: req.user.email,
+            targetEntity: 'LeaveRequest',
+            targetId: leave.id,
+        });
         // Notify Manager
         if (leave.employee.managerId) {
-            const manager = await prisma.employee.findUnique({ where: { id: leave.employee.managerId } });
+            const manager = await prisma_js_1.prisma.employee.findUnique({ where: { id: leave.employee.managerId } });
             if (manager) {
                 await createNotification(manager.userId, 'Leave Application Pending', `${leave.employee.name} has requested ${leaveType} leave from ${start.toLocaleDateString()} to ${end.toLocaleDateString()}.`, 'LEAVE_APPROVAL');
             }
@@ -82,7 +88,7 @@ exports.applyLeave = applyLeave;
 const cancelLeave = async (req, res) => {
     try {
         const { id } = req.params;
-        const leave = await prisma.leaveRequest.findUnique({ where: { id } });
+        const leave = await prisma_js_1.prisma.leaveRequest.findUnique({ where: { id } });
         if (!leave) {
             return res.status(404).json({ message: 'Leave request not found' });
         }
@@ -92,8 +98,13 @@ const cancelLeave = async (req, res) => {
         if (leave.status !== client_1.LeaveStatus.PENDING) {
             return res.status(400).json({ message: 'Can only cancel pending leave requests' });
         }
-        await prisma.leaveRequest.delete({ where: { id } });
-        await (0, audit_js_1.logAction)(req.user?.id, 'LEAVE_CANCEL', { id }, null);
+        await prisma_js_1.prisma.leaveRequest.delete({ where: { id } });
+        await (0, audit_js_1.logAction)(req.user?.id, 'LEAVE_CANCEL', { id }, null, {
+            req,
+            userEmail: req.user?.email,
+            targetEntity: 'LeaveRequest',
+            targetId: id,
+        });
         return res.json({ message: 'Leave request cancelled successfully' });
     }
     catch (error) {
@@ -104,7 +115,7 @@ exports.cancelLeave = cancelLeave;
 const approveLeave = async (req, res) => {
     try {
         const { id } = req.params;
-        const leave = await prisma.leaveRequest.findUnique({
+        const leave = await prisma_js_1.prisma.leaveRequest.findUnique({
             where: { id },
             include: { employee: true },
         });
@@ -121,7 +132,7 @@ const approveLeave = async (req, res) => {
         const diffTime = Math.abs(leave.endDate.getTime() - leave.startDate.getTime());
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
         // Update status and deduct balance in transaction
-        const updated = await prisma.$transaction(async (tx) => {
+        const updated = await prisma_js_1.prisma.$transaction(async (tx) => {
             const request = await tx.leaveRequest.update({
                 where: { id },
                 data: {
@@ -161,7 +172,7 @@ const approveLeave = async (req, res) => {
         while (currentDate <= endDate) {
             const dateString = new Date(currentDate.setHours(0, 0, 0, 0));
             try {
-                await prisma.attendance.upsert({
+                await prisma_js_1.prisma.attendance.upsert({
                     where: {
                         employeeId_date: {
                             employeeId: leave.employeeId,
@@ -186,7 +197,12 @@ const approveLeave = async (req, res) => {
             }
             currentDate.setDate(currentDate.getDate() + 1);
         }
-        await (0, audit_js_1.logAction)(req.user?.id, 'LEAVE_APPROVE', { id }, { status: 'APPROVED' });
+        await (0, audit_js_1.logAction)(req.user?.id, 'LEAVE_APPROVE', { id }, { status: 'APPROVED' }, {
+            req,
+            userEmail: req.user?.email,
+            targetEntity: 'LeaveRequest',
+            targetId: id,
+        });
         // Notify employee
         await createNotification(leave.employee.userId, 'Leave Approved', `Your request for leave from ${leave.startDate.toLocaleDateString()} to ${leave.endDate.toLocaleDateString()} has been approved.`, 'LEAVE_APPROVAL');
         return res.json(updated);
@@ -199,7 +215,7 @@ exports.approveLeave = approveLeave;
 const rejectLeave = async (req, res) => {
     try {
         const { id } = req.params;
-        const leave = await prisma.leaveRequest.findUnique({
+        const leave = await prisma_js_1.prisma.leaveRequest.findUnique({
             where: { id },
             include: { employee: true },
         });
@@ -209,14 +225,19 @@ const rejectLeave = async (req, res) => {
         if (req.user?.role === client_1.Role.MANAGER && leave.employee.managerId !== req.user.employeeId) {
             return res.status(403).json({ message: 'Forbidden: You do not manage this employee' });
         }
-        const updated = await prisma.leaveRequest.update({
+        const updated = await prisma_js_1.prisma.leaveRequest.update({
             where: { id },
             data: {
                 status: client_1.LeaveStatus.REJECTED,
                 approverId: req.user?.employeeId,
             },
         });
-        await (0, audit_js_1.logAction)(req.user?.id, 'LEAVE_REJECT', { id }, { status: 'REJECTED' });
+        await (0, audit_js_1.logAction)(req.user?.id, 'LEAVE_REJECT', { id }, { status: 'REJECTED' }, {
+            req,
+            userEmail: req.user?.email,
+            targetEntity: 'LeaveRequest',
+            targetId: id,
+        });
         // Notify employee
         await createNotification(leave.employee.userId, 'Leave Request Rejected', `Your request for leave from ${leave.startDate.toLocaleDateString()} to ${leave.endDate.toLocaleDateString()} was rejected.`, 'LEAVE_APPROVAL');
         return res.json(updated);
@@ -234,7 +255,7 @@ const getLeaveRequests = async (req, res) => {
         const { role, employeeId } = req.user;
         let requests;
         if (role === client_1.Role.ADMIN) {
-            requests = await prisma.leaveRequest.findMany({
+            requests = await prisma_js_1.prisma.leaveRequest.findMany({
                 where: {
                     employee: { deletedAt: null },
                 },
@@ -247,12 +268,12 @@ const getLeaveRequests = async (req, res) => {
         }
         else if (role === client_1.Role.MANAGER) {
             // Subordinates + self
-            const subordinates = await prisma.employee.findMany({
+            const subordinates = await prisma_js_1.prisma.employee.findMany({
                 where: { managerId: employeeId, deletedAt: null },
                 select: { id: true },
             });
             const subordinateIds = subordinates.map((s) => s.id);
-            requests = await prisma.leaveRequest.findMany({
+            requests = await prisma_js_1.prisma.leaveRequest.findMany({
                 where: {
                     employeeId: { in: [...subordinateIds, employeeId] },
                     employee: { deletedAt: null },
@@ -266,7 +287,7 @@ const getLeaveRequests = async (req, res) => {
         }
         else {
             // Employees see self
-            requests = await prisma.leaveRequest.findMany({
+            requests = await prisma_js_1.prisma.leaveRequest.findMany({
                 where: {
                     employeeId,
                     employee: { deletedAt: null },
@@ -278,6 +299,16 @@ const getLeaveRequests = async (req, res) => {
                 orderBy: { createdAt: 'desc' },
             });
         }
+        await (0, security_js_1.recordDataAccess)({
+            viewerId: req.user.id,
+            viewerEmail: req.user.email,
+            resource: 'LEAVE_REQUEST',
+            resourceId: 'LIST',
+            metadata: {
+                count: requests.length,
+                role,
+            },
+        });
         return res.json(requests);
     }
     catch (error) {
@@ -290,7 +321,7 @@ const getLeaveBalances = async (req, res) => {
         if (!req.user || !req.user.employeeId) {
             return res.status(401).json({ message: 'Unauthorized' });
         }
-        const employee = await prisma.employee.findUnique({
+        const employee = await prisma_js_1.prisma.employee.findUnique({
             where: { id: req.user.employeeId },
             select: {
                 casualBalance: true,

@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
-import { PrismaClient, Role, EmploymentStatus } from '@prisma/client';
+import { Role, EmploymentStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { prisma } from '../lib/prisma.js';
 import { logAction } from '../utils/audit.js';
-
-const prisma = new PrismaClient();
+import { recordDataAccess } from '../utils/security.js';
 
 // Helper to check circular manager paths
 export const detectCircularReporting = async (employeeId: string, managerId: string): Promise<boolean> => {
@@ -87,6 +87,23 @@ export const getAllEmployees = async (req: Request, res: Response) => {
 
     const total = await prisma.employee.count({ where: whereClause });
 
+    await recordDataAccess({
+      viewerId: req.user?.id,
+      viewerEmail: req.user?.email,
+      resource: 'EMPLOYEE_PROFILE',
+      resourceId: 'LIST',
+      metadata: {
+        total,
+        filters: {
+          departmentId,
+          role,
+          search,
+          status,
+          managerId,
+        },
+      },
+    });
+
     return res.json({
       employees,
       meta: {
@@ -138,6 +155,16 @@ export const getEmployeeById = async (req: Request, res: Response) => {
     if (!employee) {
       return res.status(404).json({ message: 'Employee not found' });
     }
+
+    await recordDataAccess({
+      viewerId: req.user?.id,
+      viewerEmail: req.user?.email,
+      resource: 'EMPLOYEE_PROFILE',
+      resourceId: employee.id,
+      metadata: {
+        employeeName: employee.name,
+      },
+    });
 
     return res.json(employee);
   } catch (error: any) {
@@ -191,7 +218,12 @@ export const createEmployee = async (req: Request, res: Response) => {
     });
 
     // Audit log
-    await logAction(req.user?.id, 'EMPLOYEE_CREATE', null, { id: employee.id, name: employee.name, email });
+    await logAction(req.user?.id, 'EMPLOYEE_CREATE', null, { id: employee.id, name: employee.name, email }, {
+      req,
+      userEmail: req.user?.email,
+      targetEntity: 'Employee',
+      targetId: employee.id,
+    });
 
     return res.status(201).json(employee);
   } catch (error: any) {
@@ -259,8 +291,23 @@ export const updateEmployee = async (req: Request, res: Response) => {
       req.user?.id,
       'EMPLOYEE_UPDATE',
       { name: existingEmp.name, designation: existingEmp.designation, status: existingEmp.employmentStatus },
-      { name: updatedEmployee.name, designation: updatedEmployee.designation, status: updatedEmployee.employmentStatus }
+      { name: updatedEmployee.name, designation: updatedEmployee.designation, status: updatedEmployee.employmentStatus },
+      {
+        req,
+        userEmail: req.user?.email,
+        targetEntity: 'Employee',
+        targetId: id,
+      }
     );
+
+    if (role && existingEmp.user.role !== role) {
+      await logAction(req.user?.id, 'ROLE_CHANGE', { role: existingEmp.user.role }, { role }, {
+        req,
+        userEmail: req.user?.email,
+        targetEntity: 'User',
+        targetId: existingEmp.userId,
+      });
+    }
 
     return res.json(updatedEmployee);
   } catch (error: any) {
@@ -293,7 +340,12 @@ export const deleteEmployee = async (req: Request, res: Response) => {
     });
 
     // Audit Log
-    await logAction(req.user?.id, 'EMPLOYEE_DELETE', { id, name: employee.name }, null);
+    await logAction(req.user?.id, 'EMPLOYEE_DELETE', { id, name: employee.name }, null, {
+      req,
+      userEmail: req.user?.email,
+      targetEntity: 'Employee',
+      targetId: id,
+    });
 
     return res.json({ message: 'Employee and user credentials deleted successfully (soft-deleted)' });
   } catch (error: any) {
@@ -408,6 +460,11 @@ export const bulkImportEmployees = async (req: Request, res: Response) => {
     await logAction(req.user?.id, 'EMPLOYEE_BULK_IMPORT', null, { 
       successCount: results.success, 
       failedCount: results.failed 
+    }, {
+      req,
+      userEmail: req.user?.email,
+      targetEntity: 'Employee',
+      targetId: 'BULK_IMPORT',
     });
 
     return res.json({

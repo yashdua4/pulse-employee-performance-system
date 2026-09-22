@@ -6,6 +6,7 @@ const auth_middleware_js_1 = require("../middleware/auth.middleware.js");
 const router = (0, express_1.Router)();
 router.post('/signup', auth_controller_js_1.signup);
 router.post('/login', auth_controller_js_1.login);
+router.post('/login/mfa', auth_controller_js_1.loginWithMfa);
 router.post('/refresh', auth_controller_js_1.refreshTokenRotation);
 router.post('/forgot-password', auth_controller_js_1.forgotPassword);
 router.post('/reset-password', auth_controller_js_1.resetPassword);

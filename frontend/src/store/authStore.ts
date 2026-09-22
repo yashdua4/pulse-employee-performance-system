@@ -4,6 +4,7 @@ export interface UserProfile {
   id: string;
   email: string;
   role: 'ADMIN' | 'MANAGER' | 'EMPLOYEE';
+  mfaEnabled?: boolean;
   employee?: {
     id: string;
     userId: string;
@@ -24,11 +25,13 @@ interface AuthState {
   user: UserProfile | null;
   accessToken: string | null;
   refreshToken: string | null;
+  pendingMfaToken: string | null;
   loading: boolean;
   setSession: (accessToken: string, refreshToken: string, user: UserProfile) => void;
   clearSession: () => void;
   setLoading: (loading: boolean) => void;
-  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string; requiresMfa?: boolean }>;
+  verifyMfaLogin: (otp: string) => Promise<{ success: boolean; error?: string }>;
   signup: (data: any) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<boolean>;
@@ -42,18 +45,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   accessToken: localStorage.getItem('pulse_access_token'),
   refreshToken: localStorage.getItem('pulse_refresh_token'),
+  pendingMfaToken: null,
   loading: true,
 
   setSession: (accessToken, refreshToken, user) => {
     localStorage.setItem('pulse_access_token', accessToken);
     localStorage.setItem('pulse_refresh_token', refreshToken);
-    set({ accessToken, refreshToken, user, loading: false });
+    set({ accessToken, refreshToken, user, pendingMfaToken: null, loading: false });
   },
 
   clearSession: () => {
     localStorage.removeItem('pulse_access_token');
     localStorage.removeItem('pulse_refresh_token');
-    set({ accessToken: null, refreshToken: null, user: null, loading: false });
+    set({ accessToken: null, refreshToken: null, user: null, pendingMfaToken: null, loading: false });
   },
 
   setLoading: (loading) => set({ loading }),
@@ -138,6 +142,36 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.message || 'Login failed');
+      }
+
+      if (data.requiresMfa) {
+        set({ pendingMfaToken: data.mfaToken });
+        return { success: false, requiresMfa: true };
+      }
+
+      get().setSession(data.accessToken, data.refreshToken, data.user);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  },
+
+  verifyMfaLogin: async (otp) => {
+    const pendingMfaToken = get().pendingMfaToken;
+    if (!pendingMfaToken) {
+      return { success: false, error: 'No MFA login is pending' };
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/auth/login/mfa`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mfaToken: pendingMfaToken, otp }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || 'OTP verification failed');
       }
 
       get().setSession(data.accessToken, data.refreshToken, data.user);

@@ -2,12 +2,13 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteReview = exports.updateReview = exports.createReview = exports.getReviewById = exports.getAllReviews = void 0;
 const client_1 = require("@prisma/client");
+const prisma_js_1 = require("../lib/prisma.js");
 const audit_js_1 = require("../utils/audit.js");
-const prisma = new client_1.PrismaClient();
+const security_js_1 = require("../utils/security.js");
 // Helper to create notifications
 const createNotification = async (userId, title, message, type) => {
     try {
-        await prisma.notification.create({
+        await prisma_js_1.prisma.notification.create({
             data: { userId, title, message, type },
         });
     }
@@ -23,7 +24,7 @@ const getAllReviews = async (req, res) => {
         const { role, employeeId } = req.user;
         let reviews;
         if (role === client_1.Role.ADMIN) {
-            reviews = await prisma.performanceReview.findMany({
+            reviews = await prisma_js_1.prisma.performanceReview.findMany({
                 include: {
                     reviewee: {
                         select: { id: true, name: true, designation: true, department: { select: { name: true } } },
@@ -37,12 +38,12 @@ const getAllReviews = async (req, res) => {
         }
         else if (role === client_1.Role.MANAGER) {
             // Managers see reviews they wrote OR reviews for employees who report to them
-            const subordinates = await prisma.employee.findMany({
+            const subordinates = await prisma_js_1.prisma.employee.findMany({
                 where: { managerId: employeeId },
                 select: { id: true },
             });
             const subordinateIds = subordinates.map((s) => s.id);
-            reviews = await prisma.performanceReview.findMany({
+            reviews = await prisma_js_1.prisma.performanceReview.findMany({
                 where: {
                     OR: [
                         { reviewerId: employeeId },
@@ -62,7 +63,7 @@ const getAllReviews = async (req, res) => {
         }
         else {
             // Employees only see their own reviews (that are SUBMITTED or ACKNOWLEDGED)
-            reviews = await prisma.performanceReview.findMany({
+            reviews = await prisma_js_1.prisma.performanceReview.findMany({
                 where: {
                     revieweeId: employeeId,
                     status: {
@@ -80,6 +81,16 @@ const getAllReviews = async (req, res) => {
                 orderBy: { createdAt: 'desc' },
             });
         }
+        await (0, security_js_1.recordDataAccess)({
+            viewerId: req.user.id,
+            viewerEmail: req.user.email,
+            resource: 'PERFORMANCE_REVIEW',
+            resourceId: 'LIST',
+            metadata: {
+                count: reviews.length,
+                role,
+            },
+        });
         return res.json(reviews);
     }
     catch (error) {
@@ -90,7 +101,7 @@ exports.getAllReviews = getAllReviews;
 const getReviewById = async (req, res) => {
     try {
         const { id } = req.params;
-        const review = await prisma.performanceReview.findUnique({
+        const review = await prisma_js_1.prisma.performanceReview.findUnique({
             where: { id },
             include: {
                 reviewee: {
@@ -120,6 +131,16 @@ const getReviewById = async (req, res) => {
                 return res.status(403).json({ message: 'Forbidden: Access denied to this review' });
             }
         }
+        await (0, security_js_1.recordDataAccess)({
+            viewerId: req.user?.id,
+            viewerEmail: req.user?.email,
+            resource: 'PERFORMANCE_REVIEW',
+            resourceId: review.id,
+            metadata: {
+                revieweeId: review.revieweeId,
+                status: review.status,
+            },
+        });
         return res.json(review);
     }
     catch (error) {
@@ -143,7 +164,7 @@ const createReview = async (req, res) => {
         const l = parseInt(leadership) || 5;
         // Average
         const overallRating = Math.round(((t + c + tw + p + l) / 5) * 10) / 10;
-        const reviewee = await prisma.employee.findUnique({ where: { id: revieweeId } });
+        const reviewee = await prisma_js_1.prisma.employee.findUnique({ where: { id: revieweeId } });
         if (!reviewee) {
             return res.status(404).json({ message: 'Reviewee employee not found' });
         }
@@ -151,7 +172,7 @@ const createReview = async (req, res) => {
         if (req.user.role === client_1.Role.MANAGER && reviewee.managerId !== req.user.employeeId) {
             return res.status(403).json({ message: 'Forbidden: You can only review direct reports' });
         }
-        const review = await prisma.performanceReview.create({
+        const review = await prisma_js_1.prisma.performanceReview.create({
             data: {
                 revieweeId,
                 reviewerId: req.user.employeeId,
@@ -167,7 +188,12 @@ const createReview = async (req, res) => {
                 status: status || client_1.ReviewStatus.DRAFT,
             },
         });
-        await (0, audit_js_1.logAction)(req.user.id, 'REVIEW_CREATE', null, { id: review.id, rating: overallRating });
+        await (0, audit_js_1.logAction)(req.user.id, 'REVIEW_CREATE', null, { id: review.id, rating: overallRating }, {
+            req,
+            userEmail: req.user.email,
+            targetEntity: 'PerformanceReview',
+            targetId: review.id,
+        });
         // Send Notification to Employee if submitted
         if (status === 'SUBMITTED') {
             await createNotification(reviewee.userId, 'Performance Review Published', `Your manager has published your evaluation review for period ${period}. Please review and acknowledge.`, 'REVIEW_DUE');
@@ -183,7 +209,7 @@ const updateReview = async (req, res) => {
     try {
         const { id } = req.params;
         const { technicalSkills, communication, teamwork, problemSolving, leadership, feedback, goals, status, period } = req.body;
-        const review = await prisma.performanceReview.findUnique({
+        const review = await prisma_js_1.prisma.performanceReview.findUnique({
             where: { id },
             include: { reviewee: true },
         });
@@ -201,11 +227,16 @@ const updateReview = async (req, res) => {
             if (status !== client_1.ReviewStatus.ACKNOWLEDGED) {
                 return res.status(400).json({ message: 'Invalid status update' });
             }
-            const updated = await prisma.performanceReview.update({
+            const updated = await prisma_js_1.prisma.performanceReview.update({
                 where: { id },
                 data: { status: client_1.ReviewStatus.ACKNOWLEDGED },
             });
-            await (0, audit_js_1.logAction)(req.user.id, 'REVIEW_ACKNOWLEDGE', { id }, { status: 'ACKNOWLEDGED' });
+            await (0, audit_js_1.logAction)(req.user.id, 'REVIEW_ACKNOWLEDGE', { id }, { status: 'ACKNOWLEDGED' }, {
+                req,
+                userEmail: req.user.email,
+                targetEntity: 'PerformanceReview',
+                targetId: id,
+            });
             return res.json(updated);
         }
         // Manager/Admin role check
@@ -235,11 +266,16 @@ const updateReview = async (req, res) => {
         if (goals !== undefined) {
             updateData.goals = Array.isArray(goals) ? JSON.stringify(goals) : goals;
         }
-        const updated = await prisma.performanceReview.update({
+        const updated = await prisma_js_1.prisma.performanceReview.update({
             where: { id },
             data: updateData,
         });
-        await (0, audit_js_1.logAction)(req.user?.id, 'REVIEW_UPDATE', { id, rating: review.overallRating }, { rating: overallRating });
+        await (0, audit_js_1.logAction)(req.user?.id, 'REVIEW_UPDATE', { id, rating: review.overallRating }, { rating: overallRating }, {
+            req,
+            userEmail: req.user?.email,
+            targetEntity: 'PerformanceReview',
+            targetId: id,
+        });
         // Notify employee if status is changed from DRAFT to SUBMITTED
         if (review.status === 'DRAFT' && status === 'SUBMITTED') {
             await createNotification(review.reviewee.userId, 'Performance Review Published', `Your manager has published your evaluation review for period ${period || review.period}.`, 'REVIEW_DUE');
@@ -254,15 +290,20 @@ exports.updateReview = updateReview;
 const deleteReview = async (req, res) => {
     try {
         const { id } = req.params;
-        const review = await prisma.performanceReview.findUnique({ where: { id } });
+        const review = await prisma_js_1.prisma.performanceReview.findUnique({ where: { id } });
         if (!review) {
             return res.status(404).json({ message: 'Review not found' });
         }
         if (req.user?.role === client_1.Role.MANAGER && review.reviewerId !== req.user.employeeId) {
             return res.status(403).json({ message: 'Forbidden: You did not write this review' });
         }
-        await prisma.performanceReview.delete({ where: { id } });
-        await (0, audit_js_1.logAction)(req.user?.id, 'REVIEW_DELETE', { id }, null);
+        await prisma_js_1.prisma.performanceReview.delete({ where: { id } });
+        await (0, audit_js_1.logAction)(req.user?.id, 'REVIEW_DELETE', { id }, null, {
+            req,
+            userEmail: req.user?.email,
+            targetEntity: 'PerformanceReview',
+            targetId: id,
+        });
         return res.json({ message: 'Performance review deleted successfully' });
     }
     catch (error) {

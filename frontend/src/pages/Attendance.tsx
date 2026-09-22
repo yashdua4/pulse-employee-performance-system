@@ -47,7 +47,15 @@ export const Attendance: React.FC = () => {
 
       if (user?.role === 'ADMIN' || user?.role === 'MANAGER') {
         const empData = await apiFetch('/employees');
-        setEmployees(empData);
+        const normalizedEmployees = Array.isArray(empData)
+          ? empData
+          : empData?.employees ?? [];
+
+        if (!Array.isArray(empData)) {
+          console.warn('Attendance employees response is not an array', empData);
+        }
+
+        setEmployees(normalizedEmployees);
       }
     } catch (err: any) {
       console.error(err);
@@ -126,7 +134,7 @@ export const Attendance: React.FC = () => {
               className="px-4 py-2 bg-slate-950 border border-slate-800 rounded-2xl text-slate-300 text-sm focus:border-violet-500 outline-none cursor-pointer"
             >
               <option value="">All Staff</option>
-              {employees.map((emp) => (
+              {(Array.isArray(employees) ? employees : []).map((emp) => (
                 <option key={emp.id} value={emp.id}>{emp.name} ({emp.designation || 'Staff'})</option>
               ))}
             </select>

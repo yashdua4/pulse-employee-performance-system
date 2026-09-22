@@ -2,12 +2,20 @@ import express from 'express';
 import cors from 'cors';
 import { rateLimit } from 'express-rate-limit';
 import dotenv from 'dotenv';
+import helmet from 'helmet';
 import apiRouter from './routes/index.js';
+import { trackRequestVolume } from './middleware/security.middleware.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+app.set('trust proxy', 1);
+
+app.use(helmet({
+  crossOriginResourcePolicy: false,
+}));
 
 // Security: Enable CORS
 app.use(cors({
@@ -37,9 +45,19 @@ const authLimiter = rateLimit({
   message: { message: 'Too many authentication attempts, please try again after 15 minutes' },
 });
 
-app.use('/api/auth/login', authLimiter);
-app.use('/api/auth/signup', authLimiter);
-app.use('/api/', globalLimiter);
+const signupLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 50, // Lightweight anti-spam limit (50 attempts per 15 minutes)
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { message: 'Too many account creation attempts, please try again after 15 minutes' },
+});
+
+app.post('/api/auth/login', authLimiter);
+app.post('/api/auth/signup', signupLimiter);
+app.post('/api/auth/forgot-password', authLimiter);
+app.use('/api/', globalLimiter, trackRequestVolume);
 
 // API Routes
 app.use('/api', apiRouter);
@@ -57,8 +75,5 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 // Boot server
 app.listen(PORT, () => {
-  console.log(`========================================`);
-  console.log(`🚀 Pulse Server running on port ${PORT}`);
-  console.log(`🏥 Healthcheck: http://localhost:${PORT}/health`);
-  console.log(`========================================`);
+  console.log(`Server is running on port ${PORT}`);
 });

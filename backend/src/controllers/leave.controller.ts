@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
-import { PrismaClient, Role, LeaveType, LeaveStatus, AttendanceStatus } from '@prisma/client';
+import { Role, LeaveType, LeaveStatus, AttendanceStatus } from '@prisma/client';
+import { prisma } from '../lib/prisma.js';
 import { logAction } from '../utils/audit.js';
-
-const prisma = new PrismaClient();
+import { recordDataAccess } from '../utils/security.js';
 
 // Helper to notify
 const createNotification = async (userId: string, title: string, message: string, type: string) => {
@@ -74,7 +74,12 @@ export const applyLeave = async (req: Request, res: Response) => {
       },
     });
 
-    await logAction(req.user.id, 'LEAVE_APPLY', null, { id: leave.id, leaveType: lType });
+    await logAction(req.user.id, 'LEAVE_APPLY', null, { id: leave.id, leaveType: lType }, {
+      req,
+      userEmail: req.user.email,
+      targetEntity: 'LeaveRequest',
+      targetId: leave.id,
+    });
 
     // Notify Manager
     if (leave.employee.managerId) {
@@ -114,7 +119,12 @@ export const cancelLeave = async (req: Request, res: Response) => {
 
     await prisma.leaveRequest.delete({ where: { id } });
 
-    await logAction(req.user?.id, 'LEAVE_CANCEL', { id }, null);
+    await logAction(req.user?.id, 'LEAVE_CANCEL', { id }, null, {
+      req,
+      userEmail: req.user?.email,
+      targetEntity: 'LeaveRequest',
+      targetId: id,
+    });
 
     return res.json({ message: 'Leave request cancelled successfully' });
   } catch (error: any) {
@@ -219,7 +229,12 @@ export const approveLeave = async (req: Request, res: Response) => {
       currentDate.setDate(currentDate.getDate() + 1);
     }
 
-    await logAction(req.user?.id, 'LEAVE_APPROVE', { id }, { status: 'APPROVED' });
+    await logAction(req.user?.id, 'LEAVE_APPROVE', { id }, { status: 'APPROVED' }, {
+      req,
+      userEmail: req.user?.email,
+      targetEntity: 'LeaveRequest',
+      targetId: id,
+    });
 
     // Notify employee
     await createNotification(
@@ -260,7 +275,12 @@ export const rejectLeave = async (req: Request, res: Response) => {
       },
     });
 
-    await logAction(req.user?.id, 'LEAVE_REJECT', { id }, { status: 'REJECTED' });
+    await logAction(req.user?.id, 'LEAVE_REJECT', { id }, { status: 'REJECTED' }, {
+      req,
+      userEmail: req.user?.email,
+      targetEntity: 'LeaveRequest',
+      targetId: id,
+    });
 
     // Notify employee
     await createNotification(
@@ -330,6 +350,17 @@ export const getLeaveRequests = async (req: Request, res: Response) => {
         orderBy: { createdAt: 'desc' },
       });
     }
+
+    await recordDataAccess({
+      viewerId: req.user.id,
+      viewerEmail: req.user.email,
+      resource: 'LEAVE_REQUEST',
+      resourceId: 'LIST',
+      metadata: {
+        count: requests.length,
+        role,
+      },
+    });
 
     return res.json(requests);
   } catch (error: any) {

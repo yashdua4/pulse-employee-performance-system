@@ -1,8 +1,9 @@
 import { Request, Response } from 'express';
-import { PrismaClient, Role, AttendanceStatus } from '@prisma/client';
+import { Role, AttendanceStatus, SuspiciousSeverity } from '@prisma/client';
+import { prisma } from '../lib/prisma.js';
 import { logAction } from '../utils/audit.js';
-
-const prisma = new PrismaClient();
+import { securityThresholds } from '../config/security.js';
+import { createSuspiciousActivity } from '../utils/security.js';
 
 // Helper to get local date representation as start-of-day UTC
 const getTodayLocalDate = () => {
@@ -122,7 +123,36 @@ export const clockIn = async (req: Request, res: Response) => {
     });
 
     // Write Audit Log
-    await logAction(req.user.id, 'ATTENDANCE_CLOCK_IN', null, { id: record.id, status });
+    await logAction(req.user.id, 'ATTENDANCE_CLOCK_IN', null, { id: record.id, status }, {
+      req,
+      userEmail: req.user.email,
+      targetEntity: 'Attendance',
+      targetId: record.id,
+    });
+
+    const recentAttendanceLogs = await prisma.attendanceLog.count({
+      where: {
+        attendance: {
+          employeeId,
+        },
+        createdAt: {
+          gte: new Date(Date.now() - securityThresholds.rapidAttendanceWindowMs),
+        },
+      },
+    });
+
+    if (recentAttendanceLogs > 3) {
+      await createSuspiciousActivity({
+        userId: req.user.id,
+        type: 'RAPID_ATTENDANCE_SUBMISSIONS',
+        description: 'Multiple attendance submissions were detected in a short time window.',
+        severity: SuspiciousSeverity.MEDIUM,
+        metadata: {
+          count: recentAttendanceLogs,
+        },
+        req,
+      });
+    }
 
     return res.status(201).json(record);
   } catch (error: any) {
@@ -177,7 +207,12 @@ export const clockOut = async (req: Request, res: Response) => {
     });
 
     // Write Audit Log
-    await logAction(req.user.id, 'ATTENDANCE_CLOCK_OUT', { id: record.id }, { workHours });
+    await logAction(req.user.id, 'ATTENDANCE_CLOCK_OUT', { id: record.id }, { workHours }, {
+      req,
+      userEmail: req.user.email,
+      targetEntity: 'Attendance',
+      targetId: record.id,
+    });
 
     return res.json(updatedRecord);
   } catch (error: any) {

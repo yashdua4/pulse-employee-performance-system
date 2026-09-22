@@ -67,6 +67,13 @@ enum LeaveStatus {
   REJECTED
 }
 
+enum SuspiciousSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
 model Department {
   id          String     @id @default(uuid())
   name        String     @unique
@@ -82,6 +89,8 @@ model User {
   email            String         @unique
   password         String
   role             Role           @default(EMPLOYEE)
+  mfaEnabled       Boolean        @default(false)
+  mfaSecret        String?
   
   // 1-to-1 relationship with Employee profile
   employee         Employee?
@@ -89,6 +98,9 @@ model User {
   refreshTokens    RefreshToken[]
   notifications    Notification[]
   auditLogs        AuditLog[]
+  sessions         UserSession[]
+  suspiciousActivities SuspiciousActivity[]
+  dataAccessLogs   DataAccessLog[]
 
   loginAttempts    Int            @default(0)
   lockoutUntil     DateTime?
@@ -105,8 +117,16 @@ model RefreshToken {
   token     String   @unique
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId String?
+  session   UserSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  ipAddress String?
+  userAgent String?
+  revokedAt DateTime?
   expiresAt DateTime
   createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([sessionId])
 }
 
 model Employee {
@@ -304,11 +324,71 @@ model AuditLog {
   id            String   @id @default(uuid())
   userId        String?
   user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userEmail     String?
   action        String   // "LOGIN", "EMPLOYEE_CREATE", "PROJECT_CHANGE", etc.
+  targetEntity  String?
+  targetId      String?
+  ipAddress     String?
+  userAgent     String?
   previousValue String?  // stringified JSON
   newValue      String?  // stringified JSON
+  metadata      Json?
   timestamp     DateTime @default(now())
 
   @@index([userId])
+  @@index([action])
   @@index([timestamp])
+}
+
+model UserSession {
+  id           String         @id @default(uuid())
+  userId       String
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceName   String?
+  browser      String?
+  ipAddress    String?
+  userAgent    String?
+  lastActivity DateTime       @default(now())
+  revoked      Boolean        @default(false)
+  revokedAt    DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  refreshTokens RefreshToken[]
+
+  @@index([userId, revoked])
+  @@index([lastActivity])
+}
+
+model SuspiciousActivity {
+  id          String             @id @default(uuid())
+  userId      String?
+  user        User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  type        String
+  severity    SuspiciousSeverity @default(MEDIUM)
+  description String
+  ipAddress   String?
+  userAgent   String?
+  metadata    Json?
+  resolved    Boolean            @default(false)
+  resolvedAt  DateTime?
+  createdAt   DateTime           @default(now())
+
+  @@index([userId])
+  @@index([severity])
+  @@index([createdAt])
+}
+
+model DataAccessLog {
+  id          String   @id @default(uuid())
+  viewerId    String?
+  viewer      User?    @relation(fields: [viewerId], references: [id], onDelete: SetNull)
+  viewerEmail String?
+  resource    String
+  resourceId  String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([viewerId])
+  @@index([resource])
+  @@index([createdAt])
 }

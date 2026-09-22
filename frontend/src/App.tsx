@@ -17,8 +17,15 @@ import { Performance } from './pages/Performance.js';
 import { Leaves } from './pages/Leaves.js';
 import { Reports } from './pages/Reports.js';
 import { AuditLogs } from './pages/AuditLogs.js';
+import { SecurityCenter } from './pages/SecurityCenter.js';
+import { SecurityDashboard } from './pages/SecurityDashboard.js';
+import { SecurityStatus } from './pages/SecurityStatus.js';
+import { PermissionMatrix } from './pages/PermissionMatrix.js';
 
-const ProtectedLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const ProtectedLayout: React.FC<{ children: React.ReactNode; roles?: Array<'ADMIN' | 'MANAGER' | 'EMPLOYEE'> }> = ({
+  children,
+  roles,
+}) => {
   const { user, loading } = useAuthStore();
 
   if (loading) {
@@ -31,6 +38,10 @@ const ProtectedLayout: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
   if (!user) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (roles && !roles.includes(user.role)) {
+    return <Navigate to="/" replace />;
   }
 
   return (
@@ -159,6 +170,38 @@ const AppContent: React.FC = () => {
         element={
           <ProtectedLayout>
             <AuditLogs />
+          </ProtectedLayout>
+        }
+      />
+      <Route
+        path="/security"
+        element={
+          <ProtectedLayout>
+            <SecurityCenter />
+          </ProtectedLayout>
+        }
+      />
+      <Route
+        path="/security/dashboard"
+        element={
+          <ProtectedLayout roles={['ADMIN']}>
+            <SecurityDashboard />
+          </ProtectedLayout>
+        }
+      />
+      <Route
+        path="/security/status"
+        element={
+          <ProtectedLayout roles={['ADMIN']}>
+            <SecurityStatus />
+          </ProtectedLayout>
+        }
+      />
+      <Route
+        path="/security/permissions"
+        element={
+          <ProtectedLayout roles={['ADMIN']}>
+            <PermissionMatrix />
           </ProtectedLayout>
         }
       />

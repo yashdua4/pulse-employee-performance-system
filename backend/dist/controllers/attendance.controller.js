@@ -2,8 +2,10 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getAttendanceLogs = exports.getTodayStatus = exports.clockOut = exports.clockIn = void 0;
 const client_1 = require("@prisma/client");
+const prisma_js_1 = require("../lib/prisma.js");
 const audit_js_1 = require("../utils/audit.js");
-const prisma = new client_1.PrismaClient();
+const security_js_1 = require("../config/security.js");
+const security_js_2 = require("../utils/security.js");
 // Helper to get local date representation as start-of-day UTC
 const getTodayLocalDate = () => {
     const d = new Date();
@@ -18,7 +20,7 @@ const clockIn = async (req, res) => {
         const employeeId = req.user.employeeId;
         const today = getTodayLocalDate();
         // Check if already clocked in today
-        const existing = await prisma.attendance.findUnique({
+        const existing = await prisma_js_1.prisma.attendance.findUnique({
             where: {
                 employeeId_date: { employeeId, date: today },
             },
@@ -26,7 +28,7 @@ const clockIn = async (req, res) => {
         if (existing) {
             return res.status(400).json({ message: 'Already clocked in today' });
         }
-        const employee = await prisma.employee.findUnique({
+        const employee = await prisma_js_1.prisma.employee.findUnique({
             where: { id: employeeId },
             include: { department: true },
         });
@@ -70,7 +72,7 @@ const clockIn = async (req, res) => {
             status = client_1.AttendanceStatus.LATE;
         }
         // Check if employee has approved leave request today
-        const leave = await prisma.leaveRequest.findFirst({
+        const leave = await prisma_js_1.prisma.leaveRequest.findFirst({
             where: {
                 employeeId,
                 status: 'APPROVED',
@@ -81,7 +83,7 @@ const clockIn = async (req, res) => {
         if (leave) {
             status = client_1.AttendanceStatus.LEAVE;
         }
-        const record = await prisma.attendance.create({
+        const record = await prisma_js_1.prisma.attendance.create({
             data: {
                 employeeId,
                 date: today,
@@ -90,7 +92,7 @@ const clockIn = async (req, res) => {
             },
         });
         // Create AttendanceLog
-        await prisma.attendanceLog.create({
+        await prisma_js_1.prisma.attendanceLog.create({
             data: {
                 attendanceId: record.id,
                 action: 'CLOCK_IN',
@@ -99,7 +101,34 @@ const clockIn = async (req, res) => {
             },
         });
         // Write Audit Log
-        await (0, audit_js_1.logAction)(req.user.id, 'ATTENDANCE_CLOCK_IN', null, { id: record.id, status });
+        await (0, audit_js_1.logAction)(req.user.id, 'ATTENDANCE_CLOCK_IN', null, { id: record.id, status }, {
+            req,
+            userEmail: req.user.email,
+            targetEntity: 'Attendance',
+            targetId: record.id,
+        });
+        const recentAttendanceLogs = await prisma_js_1.prisma.attendanceLog.count({
+            where: {
+                attendance: {
+                    employeeId,
+                },
+                createdAt: {
+                    gte: new Date(Date.now() - security_js_1.securityThresholds.rapidAttendanceWindowMs),
+                },
+            },
+        });
+        if (recentAttendanceLogs > 3) {
+            await (0, security_js_2.createSuspiciousActivity)({
+                userId: req.user.id,
+                type: 'RAPID_ATTENDANCE_SUBMISSIONS',
+                description: 'Multiple attendance submissions were detected in a short time window.',
+                severity: client_1.SuspiciousSeverity.MEDIUM,
+                metadata: {
+                    count: recentAttendanceLogs,
+                },
+                req,
+            });
+        }
         return res.status(201).json(record);
     }
     catch (error) {
@@ -115,7 +144,7 @@ const clockOut = async (req, res) => {
         const employeeId = req.user.employeeId;
         const today = getTodayLocalDate();
         // Find today's clock in
-        const record = await prisma.attendance.findUnique({
+        const record = await prisma_js_1.prisma.attendance.findUnique({
             where: {
                 employeeId_date: { employeeId, date: today },
             },
@@ -129,7 +158,7 @@ const clockOut = async (req, res) => {
         const clockOutTime = new Date();
         const diffMs = clockOutTime.getTime() - record.clockIn.getTime();
         const workHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100; // 2 decimal places
-        const updatedRecord = await prisma.attendance.update({
+        const updatedRecord = await prisma_js_1.prisma.attendance.update({
             where: { id: record.id },
             data: {
                 clockOut: clockOutTime,
@@ -137,7 +166,7 @@ const clockOut = async (req, res) => {
             },
         });
         // Create AttendanceLog
-        await prisma.attendanceLog.create({
+        await prisma_js_1.prisma.attendanceLog.create({
             data: {
                 attendanceId: record.id,
                 action: 'CLOCK_OUT',
@@ -146,7 +175,12 @@ const clockOut = async (req, res) => {
             },
         });
         // Write Audit Log
-        await (0, audit_js_1.logAction)(req.user.id, 'ATTENDANCE_CLOCK_OUT', { id: record.id }, { workHours });
+        await (0, audit_js_1.logAction)(req.user.id, 'ATTENDANCE_CLOCK_OUT', { id: record.id }, { workHours }, {
+            req,
+            userEmail: req.user.email,
+            targetEntity: 'Attendance',
+            targetId: record.id,
+        });
         return res.json(updatedRecord);
     }
     catch (error) {
@@ -161,7 +195,7 @@ const getTodayStatus = async (req, res) => {
         }
         const employeeId = req.user.employeeId;
         const today = getTodayLocalDate();
-        const record = await prisma.attendance.findUnique({
+        const record = await prisma_js_1.prisma.attendance.findUnique({
             where: {
                 employeeId_date: { employeeId, date: today },
             },
@@ -189,7 +223,7 @@ const getAttendanceLogs = async (req, res) => {
             if (departmentId) {
                 whereClause.employee = { departmentId: departmentId };
             }
-            logs = await prisma.attendance.findMany({
+            logs = await prisma_js_1.prisma.attendance.findMany({
                 where: whereClause,
                 include: {
                     employee: {
@@ -202,7 +236,7 @@ const getAttendanceLogs = async (req, res) => {
         }
         else if (role === client_1.Role.MANAGER && employeeId) {
             // Managers see team + self
-            const subordinates = await prisma.employee.findMany({
+            const subordinates = await prisma_js_1.prisma.employee.findMany({
                 where: { managerId: employeeId },
                 select: { id: true },
             });
@@ -213,7 +247,7 @@ const getAttendanceLogs = async (req, res) => {
             if (targetEmployeeId && [...subordinateIds, employeeId].includes(targetEmployeeId)) {
                 whereClause.employeeId = targetEmployeeId;
             }
-            logs = await prisma.attendance.findMany({
+            logs = await prisma_js_1.prisma.attendance.findMany({
                 where: whereClause,
                 include: {
                     employee: {
@@ -226,7 +260,7 @@ const getAttendanceLogs = async (req, res) => {
         }
         else if (employeeId) {
             // Employees see self
-            logs = await prisma.attendance.findMany({
+            logs = await prisma_js_1.prisma.attendance.findMany({
                 where: { employeeId },
                 include: {
                     employee: {

@@ -1,8 +1,6 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../lib/prisma.js';
 import { logAction } from '../utils/audit.js';
-
-const prisma = new PrismaClient();
 
 export const getAllDepartments = async (req: Request, res: Response) => {
   try {
@@ -36,7 +34,12 @@ export const createDepartment = async (req: Request, res: Response) => {
       data: { name, description },
     });
 
-    await logAction(req.user?.id, 'DEPARTMENT_CREATE', null, dept);
+    await logAction(req.user?.id, 'DEPARTMENT_CREATE', null, dept, {
+      req,
+      userEmail: req.user?.email,
+      targetEntity: 'Department',
+      targetId: dept.id,
+    });
 
     return res.status(201).json(dept);
   } catch (error: any) {
@@ -59,7 +62,12 @@ export const updateDepartment = async (req: Request, res: Response) => {
       data: { name, description },
     });
 
-    await logAction(req.user?.id, 'DEPARTMENT_UPDATE', dept, updated);
+    await logAction(req.user?.id, 'DEPARTMENT_UPDATE', dept, updated, {
+      req,
+      userEmail: req.user?.email,
+      targetEntity: 'Department',
+      targetId: id,
+    });
 
     return res.json(updated);
   } catch (error: any) {
@@ -78,7 +86,12 @@ export const deleteDepartment = async (req: Request, res: Response) => {
 
     await prisma.department.delete({ where: { id } });
 
-    await logAction(req.user?.id, 'DEPARTMENT_DELETE', { id, name: dept.name }, null);
+    await logAction(req.user?.id, 'DEPARTMENT_DELETE', { id, name: dept.name }, null, {
+      req,
+      userEmail: req.user?.email,
+      targetEntity: 'Department',
+      targetId: id,
+    });
 
     return res.json({ message: 'Department deleted successfully' });
   } catch (error: any) {

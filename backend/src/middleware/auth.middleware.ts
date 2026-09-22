@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import * as jwt from 'jsonwebtoken';
 import { Role } from '@prisma/client';
 import { AuthUser } from '../types.js';
+import { prisma } from '../lib/prisma.js';
+import { touchSession } from '../utils/security.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'pulse_performance_management_secret_key_2026_sdlfj39';
 
@@ -20,7 +22,7 @@ const parseCookies = (cookieHeader: string | undefined): Record<string, string> 
   return list;
 };
 
-export const authenticate = (req: Request, res: Response, next: NextFunction) => {
+export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
   let token: string | undefined;
   
   const authHeader = req.headers.authorization;
@@ -37,7 +39,19 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
+    if (decoded.sessionId) {
+      const session = await prisma.userSession.findUnique({
+        where: { id: decoded.sessionId },
+        select: { revoked: true },
+      });
+
+      if (!session || session.revoked) {
+        return res.status(401).json({ message: 'Session is no longer active' });
+      }
+    }
+
     req.user = decoded;
+    await touchSession(decoded.sessionId);
     next();
   } catch (error) {
     return res.status(401).json({ message: 'Invalid or expired token' });

@@ -35,6 +35,8 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.requireRoles = exports.authenticate = void 0;
 const jwt = __importStar(require("jsonwebtoken"));
+const prisma_js_1 = require("../lib/prisma.js");
+const security_js_1 = require("../utils/security.js");
 const JWT_SECRET = process.env.JWT_SECRET || 'pulse_performance_management_secret_key_2026_sdlfj39';
 const parseCookies = (cookieHeader) => {
     const list = {};
@@ -49,7 +51,7 @@ const parseCookies = (cookieHeader) => {
     });
     return list;
 };
-const authenticate = (req, res, next) => {
+const authenticate = async (req, res, next) => {
     let token;
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -64,7 +66,17 @@ const authenticate = (req, res, next) => {
     }
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
+        if (decoded.sessionId) {
+            const session = await prisma_js_1.prisma.userSession.findUnique({
+                where: { id: decoded.sessionId },
+                select: { revoked: true },
+            });
+            if (!session || session.revoked) {
+                return res.status(401).json({ message: 'Session is no longer active' });
+            }
+        }
         req.user = decoded;
+        await (0, security_js_1.touchSession)(decoded.sessionId);
         next();
     }
     catch (error) {

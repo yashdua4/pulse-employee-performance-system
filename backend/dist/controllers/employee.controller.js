@@ -36,8 +36,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.bulkImportEmployees = exports.getManagersList = exports.deleteEmployee = exports.updateEmployee = exports.createEmployee = exports.getEmployeeById = exports.getAllEmployees = exports.detectCircularReporting = void 0;
 const client_1 = require("@prisma/client");
 const bcrypt = __importStar(require("bcryptjs"));
+const prisma_js_1 = require("../lib/prisma.js");
 const audit_js_1 = require("../utils/audit.js");
-const prisma = new client_1.PrismaClient();
+const security_js_1 = require("../utils/security.js");
 // Helper to check circular manager paths
 const detectCircularReporting = async (employeeId, managerId) => {
     let currentManagerId = managerId;
@@ -45,7 +46,7 @@ const detectCircularReporting = async (employeeId, managerId) => {
         if (currentManagerId === employeeId) {
             return true; // Loop detected
         }
-        const mgr = await prisma.employee.findFirst({
+        const mgr = await prisma_js_1.prisma.employee.findFirst({
             where: { id: currentManagerId, deletedAt: null },
             select: { managerId: true },
         });
@@ -86,7 +87,7 @@ const getAllEmployees = async (req, res) => {
         const p = parseInt(page) || 1;
         const l = parseInt(limit) || 50;
         const skip = (p - 1) * l;
-        const employees = await prisma.employee.findMany({
+        const employees = await prisma_js_1.prisma.employee.findMany({
             where: whereClause,
             include: {
                 user: {
@@ -110,7 +111,23 @@ const getAllEmployees = async (req, res) => {
             skip,
             take: l,
         });
-        const total = await prisma.employee.count({ where: whereClause });
+        const total = await prisma_js_1.prisma.employee.count({ where: whereClause });
+        await (0, security_js_1.recordDataAccess)({
+            viewerId: req.user?.id,
+            viewerEmail: req.user?.email,
+            resource: 'EMPLOYEE_PROFILE',
+            resourceId: 'LIST',
+            metadata: {
+                total,
+                filters: {
+                    departmentId,
+                    role,
+                    search,
+                    status,
+                    managerId,
+                },
+            },
+        });
         return res.json({
             employees,
             meta: {
@@ -129,7 +146,7 @@ exports.getAllEmployees = getAllEmployees;
 const getEmployeeById = async (req, res) => {
     try {
         const { id } = req.params;
-        const employee = await prisma.employee.findFirst({
+        const employee = await prisma_js_1.prisma.employee.findFirst({
             where: { id, deletedAt: null },
             include: {
                 user: {
@@ -161,6 +178,15 @@ const getEmployeeById = async (req, res) => {
         if (!employee) {
             return res.status(404).json({ message: 'Employee not found' });
         }
+        await (0, security_js_1.recordDataAccess)({
+            viewerId: req.user?.id,
+            viewerEmail: req.user?.email,
+            resource: 'EMPLOYEE_PROFILE',
+            resourceId: employee.id,
+            metadata: {
+                employeeName: employee.name,
+            },
+        });
         return res.json(employee);
     }
     catch (error) {
@@ -171,18 +197,18 @@ exports.getEmployeeById = getEmployeeById;
 const createEmployee = async (req, res) => {
     try {
         const { email, password, name, role, departmentId, designation, contactNumber, managerId, dateOfJoining } = req.body;
-        const existingUser = await prisma.user.findFirst({ where: { email, deletedAt: null } });
+        const existingUser = await prisma_js_1.prisma.user.findFirst({ where: { email, deletedAt: null } });
         if (existingUser) {
             return res.status(400).json({ message: 'User credentials already exist for this email' });
         }
         if (managerId) {
-            const mgr = await prisma.employee.findFirst({ where: { id: managerId, deletedAt: null } });
+            const mgr = await prisma_js_1.prisma.employee.findFirst({ where: { id: managerId, deletedAt: null } });
             if (!mgr) {
                 return res.status(400).json({ message: 'Manager employee not found' });
             }
         }
         const passwordHash = await bcrypt.hash(password, 10);
-        const employee = await prisma.$transaction(async (tx) => {
+        const employee = await prisma_js_1.prisma.$transaction(async (tx) => {
             const user = await tx.user.create({
                 data: {
                     email,
@@ -208,7 +234,12 @@ const createEmployee = async (req, res) => {
             });
         });
         // Audit log
-        await (0, audit_js_1.logAction)(req.user?.id, 'EMPLOYEE_CREATE', null, { id: employee.id, name: employee.name, email });
+        await (0, audit_js_1.logAction)(req.user?.id, 'EMPLOYEE_CREATE', null, { id: employee.id, name: employee.name, email }, {
+            req,
+            userEmail: req.user?.email,
+            targetEntity: 'Employee',
+            targetId: employee.id,
+        });
         return res.status(201).json(employee);
     }
     catch (error) {
@@ -220,7 +251,7 @@ const updateEmployee = async (req, res) => {
     try {
         const { id } = req.params;
         const { name, role, departmentId, designation, contactNumber, managerId, employmentStatus, dateOfJoining, email } = req.body;
-        const existingEmp = await prisma.employee.findFirst({
+        const existingEmp = await prisma_js_1.prisma.employee.findFirst({
             where: { id, deletedAt: null },
             include: { user: true }
         });
@@ -236,7 +267,7 @@ const updateEmployee = async (req, res) => {
                 return res.status(400).json({ message: 'Circular reporting loop detected: Proposed manager already reports to this employee.' });
             }
         }
-        const updatedEmployee = await prisma.$transaction(async (tx) => {
+        const updatedEmployee = await prisma_js_1.prisma.$transaction(async (tx) => {
             // 1. Update user credentials if email or role changes
             if (email || role) {
                 await tx.user.update({
@@ -265,7 +296,20 @@ const updateEmployee = async (req, res) => {
             });
         });
         // Audit Log
-        await (0, audit_js_1.logAction)(req.user?.id, 'EMPLOYEE_UPDATE', { name: existingEmp.name, designation: existingEmp.designation, status: existingEmp.employmentStatus }, { name: updatedEmployee.name, designation: updatedEmployee.designation, status: updatedEmployee.employmentStatus });
+        await (0, audit_js_1.logAction)(req.user?.id, 'EMPLOYEE_UPDATE', { name: existingEmp.name, designation: existingEmp.designation, status: existingEmp.employmentStatus }, { name: updatedEmployee.name, designation: updatedEmployee.designation, status: updatedEmployee.employmentStatus }, {
+            req,
+            userEmail: req.user?.email,
+            targetEntity: 'Employee',
+            targetId: id,
+        });
+        if (role && existingEmp.user.role !== role) {
+            await (0, audit_js_1.logAction)(req.user?.id, 'ROLE_CHANGE', { role: existingEmp.user.role }, { role }, {
+                req,
+                userEmail: req.user?.email,
+                targetEntity: 'User',
+                targetId: existingEmp.userId,
+            });
+        }
         return res.json(updatedEmployee);
     }
     catch (error) {
@@ -276,14 +320,14 @@ exports.updateEmployee = updateEmployee;
 const deleteEmployee = async (req, res) => {
     try {
         const { id } = req.params;
-        const employee = await prisma.employee.findFirst({
+        const employee = await prisma_js_1.prisma.employee.findFirst({
             where: { id, deletedAt: null }
         });
         if (!employee) {
             return res.status(404).json({ message: 'Employee not found' });
         }
         // Soft-delete User and Employee in transaction
-        await prisma.$transaction(async (tx) => {
+        await prisma_js_1.prisma.$transaction(async (tx) => {
             await tx.employee.update({
                 where: { id },
                 data: { deletedAt: new Date() },
@@ -294,7 +338,12 @@ const deleteEmployee = async (req, res) => {
             });
         });
         // Audit Log
-        await (0, audit_js_1.logAction)(req.user?.id, 'EMPLOYEE_DELETE', { id, name: employee.name }, null);
+        await (0, audit_js_1.logAction)(req.user?.id, 'EMPLOYEE_DELETE', { id, name: employee.name }, null, {
+            req,
+            userEmail: req.user?.email,
+            targetEntity: 'Employee',
+            targetId: id,
+        });
         return res.json({ message: 'Employee and user credentials deleted successfully (soft-deleted)' });
     }
     catch (error) {
@@ -304,7 +353,7 @@ const deleteEmployee = async (req, res) => {
 exports.deleteEmployee = deleteEmployee;
 const getManagersList = async (req, res) => {
     try {
-        const managers = await prisma.employee.findMany({
+        const managers = await prisma_js_1.prisma.employee.findMany({
             where: {
                 deletedAt: null,
                 user: {
@@ -354,7 +403,7 @@ const bulkImportEmployees = async (req, res) => {
                 continue;
             }
             try {
-                const existing = await prisma.user.findUnique({ where: { email } });
+                const existing = await prisma_js_1.prisma.user.findUnique({ where: { email } });
                 if (existing) {
                     results.failed++;
                     results.errors.push(`Row ${rowNum}: User with email "${email}" already exists`);
@@ -362,18 +411,18 @@ const bulkImportEmployees = async (req, res) => {
                 }
                 let departmentId = null;
                 if (departmentName) {
-                    const dept = await prisma.department.findUnique({ where: { name: departmentName } });
+                    const dept = await prisma_js_1.prisma.department.findUnique({ where: { name: departmentName } });
                     if (dept) {
                         departmentId = dept.id;
                     }
                     else {
-                        const newDept = await prisma.department.create({
+                        const newDept = await prisma_js_1.prisma.department.create({
                             data: { name: departmentName, description: 'Created during bulk onboarding' }
                         });
                         departmentId = newDept.id;
                     }
                 }
-                await prisma.$transaction(async (tx) => {
+                await prisma_js_1.prisma.$transaction(async (tx) => {
                     const u = await tx.user.create({
                         data: {
                             email,
@@ -401,6 +450,11 @@ const bulkImportEmployees = async (req, res) => {
         await (0, audit_js_1.logAction)(req.user?.id, 'EMPLOYEE_BULK_IMPORT', null, {
             successCount: results.success,
             failedCount: results.failed
+        }, {
+            req,
+            userEmail: req.user?.email,
+            targetEntity: 'Employee',
+            targetId: 'BULK_IMPORT',
         });
         return res.json({
             message: `Bulk import completed. Success: ${results.success}, Failed: ${results.failed}`,

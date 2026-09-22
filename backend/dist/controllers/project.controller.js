@@ -2,12 +2,12 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteTask = exports.updateTask = exports.createTask = exports.deleteProject = exports.updateProject = exports.createProject = exports.getProjectById = exports.getAllProjects = void 0;
 const client_1 = require("@prisma/client");
+const prisma_js_1 = require("../lib/prisma.js");
 const audit_js_1 = require("../utils/audit.js");
-const prisma = new client_1.PrismaClient();
 // Helper to create member notification
 const createNotification = async (userId, title, message, type) => {
     try {
-        await prisma.notification.create({
+        await prisma_js_1.prisma.notification.create({
             data: { userId, title, message, type },
         });
     }
@@ -23,7 +23,7 @@ const getAllProjects = async (req, res) => {
         const { role, employeeId } = req.user;
         let projects;
         if (role === client_1.Role.ADMIN) {
-            projects = await prisma.project.findMany({
+            projects = await prisma_js_1.prisma.project.findMany({
                 where: { deletedAt: null },
                 include: {
                     manager: {
@@ -46,7 +46,7 @@ const getAllProjects = async (req, res) => {
             });
         }
         else if (role === client_1.Role.MANAGER) {
-            projects = await prisma.project.findMany({
+            projects = await prisma_js_1.prisma.project.findMany({
                 where: {
                     deletedAt: null,
                     OR: [
@@ -75,7 +75,7 @@ const getAllProjects = async (req, res) => {
             });
         }
         else {
-            projects = await prisma.project.findMany({
+            projects = await prisma_js_1.prisma.project.findMany({
                 where: {
                     deletedAt: null,
                     members: { some: { employeeId } },
@@ -110,7 +110,7 @@ exports.getAllProjects = getAllProjects;
 const getProjectById = async (req, res) => {
     try {
         const { id } = req.params;
-        const project = await prisma.project.findFirst({
+        const project = await prisma_js_1.prisma.project.findFirst({
             where: { id, deletedAt: null },
             include: {
                 manager: {
@@ -155,7 +155,7 @@ const createProject = async (req, res) => {
         if (!name || !managerId) {
             return res.status(400).json({ message: 'Project name and managerId are required' });
         }
-        const project = await prisma.project.create({
+        const project = await prisma_js_1.prisma.project.create({
             data: {
                 name,
                 description,
@@ -178,11 +178,16 @@ const createProject = async (req, res) => {
             },
         });
         // Write Audit Log
-        await (0, audit_js_1.logAction)(req.user?.id, 'PROJECT_CREATE', null, { id: project.id, name: project.name });
+        await (0, audit_js_1.logAction)(req.user?.id, 'PROJECT_CREATE', null, { id: project.id, name: project.name }, {
+            req,
+            userEmail: req.user?.email,
+            targetEntity: 'Project',
+            targetId: project.id,
+        });
         // Send Notification to members
         if (memberIds && Array.isArray(memberIds)) {
             for (const empId of memberIds) {
-                const emp = await prisma.employee.findUnique({ where: { id: empId } });
+                const emp = await prisma_js_1.prisma.employee.findUnique({ where: { id: empId } });
                 if (emp) {
                     await createNotification(emp.userId, 'New Project Assignment', `You have been assigned as a member on the project "${project.name}".`, 'PROJECT_ASSIGNMENT');
                 }
@@ -199,7 +204,7 @@ const updateProject = async (req, res) => {
     try {
         const { id } = req.params;
         const { name, description, status, priority, startDate, endDate, managerId, memberIds } = req.body;
-        const project = await prisma.project.findFirst({ where: { id, deletedAt: null } });
+        const project = await prisma_js_1.prisma.project.findFirst({ where: { id, deletedAt: null } });
         if (!project) {
             return res.status(404).json({ message: 'Project not found' });
         }
@@ -223,7 +228,7 @@ const updateProject = async (req, res) => {
         // Sync project member junction tables
         if (memberIds && Array.isArray(memberIds)) {
             // 1. Delete old memberships
-            await prisma.projectMember.deleteMany({ where: { projectId: id } });
+            await prisma_js_1.prisma.projectMember.deleteMany({ where: { projectId: id } });
             // 2. Create new memberships
             updateData.members = {
                 create: memberIds.map((empId) => ({
@@ -231,7 +236,7 @@ const updateProject = async (req, res) => {
                 })),
             };
         }
-        const updatedProject = await prisma.project.update({
+        const updatedProject = await prisma_js_1.prisma.project.update({
             where: { id },
             data: updateData,
             include: {
@@ -240,7 +245,12 @@ const updateProject = async (req, res) => {
             },
         });
         // Write Audit Log
-        await (0, audit_js_1.logAction)(req.user?.id, 'PROJECT_UPDATE', { name: project.name, status: project.status }, { name: updatedProject.name, status: updatedProject.status });
+        await (0, audit_js_1.logAction)(req.user?.id, 'PROJECT_UPDATE', { name: project.name, status: project.status }, { name: updatedProject.name, status: updatedProject.status }, {
+            req,
+            userEmail: req.user?.email,
+            targetEntity: 'Project',
+            targetId: id,
+        });
         return res.json(updatedProject);
     }
     catch (error) {
@@ -251,14 +261,14 @@ exports.updateProject = updateProject;
 const deleteProject = async (req, res) => {
     try {
         const { id } = req.params;
-        const project = await prisma.project.findFirst({ where: { id, deletedAt: null } });
+        const project = await prisma_js_1.prisma.project.findFirst({ where: { id, deletedAt: null } });
         if (!project) {
             return res.status(404).json({ message: 'Project not found' });
         }
         if (req.user?.role === client_1.Role.MANAGER && project.managerId !== req.user.employeeId) {
             return res.status(403).json({ message: 'Forbidden: You do not manage this project' });
         }
-        await prisma.$transaction(async (tx) => {
+        await prisma_js_1.prisma.$transaction(async (tx) => {
             await tx.project.update({
                 where: { id },
                 data: { deletedAt: new Date() },
@@ -269,7 +279,12 @@ const deleteProject = async (req, res) => {
             });
         });
         // Write Audit Log
-        await (0, audit_js_1.logAction)(req.user?.id, 'PROJECT_DELETE', { id, name: project.name }, null);
+        await (0, audit_js_1.logAction)(req.user?.id, 'PROJECT_DELETE', { id, name: project.name }, null, {
+            req,
+            userEmail: req.user?.email,
+            targetEntity: 'Project',
+            targetId: id,
+        });
         return res.json({ message: 'Project deleted successfully (soft-deleted)' });
     }
     catch (error) {
@@ -285,14 +300,14 @@ const createTask = async (req, res) => {
         if (!title) {
             return res.status(400).json({ message: 'Task title is required' });
         }
-        const project = await prisma.project.findFirst({ where: { id: projectId, deletedAt: null } });
+        const project = await prisma_js_1.prisma.project.findFirst({ where: { id: projectId, deletedAt: null } });
         if (!project) {
             return res.status(404).json({ message: 'Project not found' });
         }
         if (req.user?.role === client_1.Role.MANAGER && project.managerId !== req.user.employeeId) {
             return res.status(403).json({ message: 'Forbidden: You do not manage this project' });
         }
-        const task = await prisma.task.create({
+        const task = await prisma_js_1.prisma.task.create({
             data: {
                 title,
                 description,
@@ -305,10 +320,15 @@ const createTask = async (req, res) => {
                 assignee: true,
             },
         });
-        await (0, audit_js_1.logAction)(req.user?.id, 'TASK_CREATE', null, { id: task.id, title: task.title });
+        await (0, audit_js_1.logAction)(req.user?.id, 'TASK_CREATE', null, { id: task.id, title: task.title }, {
+            req,
+            userEmail: req.user?.email,
+            targetEntity: 'Task',
+            targetId: task.id,
+        });
         // Notify assignee
         if (assigneeId) {
-            const emp = await prisma.employee.findUnique({ where: { id: assigneeId } });
+            const emp = await prisma_js_1.prisma.employee.findUnique({ where: { id: assigneeId } });
             if (emp) {
                 await createNotification(emp.userId, 'New Task Assigned', `You have been assigned a task "${task.title}" under project "${project.name}".`, 'TASK_ASSIGNMENT');
             }
@@ -324,7 +344,7 @@ const updateTask = async (req, res) => {
     try {
         const { taskId } = req.params;
         const { title, description, status, dueDate, assigneeId } = req.body;
-        const task = await prisma.task.findFirst({
+        const task = await prisma_js_1.prisma.task.findFirst({
             where: { id: taskId, deletedAt: null },
             include: { project: true },
         });
@@ -336,14 +356,14 @@ const updateTask = async (req, res) => {
             if (task.assigneeId !== req.user.employeeId) {
                 return res.status(403).json({ message: 'Forbidden: Task not assigned to you' });
             }
-            const updated = await prisma.task.update({
+            const updated = await prisma_js_1.prisma.task.update({
                 where: { id: taskId },
                 data: { status: status },
             });
             return res.json(updated);
         }
         // Managers/Admins can edit everything
-        const updated = await prisma.task.update({
+        const updated = await prisma_js_1.prisma.task.update({
             where: { id: taskId },
             data: {
                 title,
@@ -353,7 +373,12 @@ const updateTask = async (req, res) => {
                 assigneeId: assigneeId !== undefined ? (assigneeId || null) : undefined,
             },
         });
-        await (0, audit_js_1.logAction)(req.user?.id, 'TASK_UPDATE', { id: taskId, status: task.status }, { status: updated.status });
+        await (0, audit_js_1.logAction)(req.user?.id, 'TASK_UPDATE', { id: taskId, status: task.status }, { status: updated.status }, {
+            req,
+            userEmail: req.user?.email,
+            targetEntity: 'Task',
+            targetId: taskId,
+        });
         return res.json(updated);
     }
     catch (error) {
@@ -364,7 +389,7 @@ exports.updateTask = updateTask;
 const deleteTask = async (req, res) => {
     try {
         const { taskId } = req.params;
-        const task = await prisma.task.findFirst({
+        const task = await prisma_js_1.prisma.task.findFirst({
             where: { id: taskId, deletedAt: null },
             include: { project: true },
         });
@@ -374,11 +399,16 @@ const deleteTask = async (req, res) => {
         if (req.user?.role === client_1.Role.MANAGER && task.project.managerId !== req.user.employeeId) {
             return res.status(403).json({ message: 'Forbidden: You do not lead this project' });
         }
-        await prisma.task.update({
+        await prisma_js_1.prisma.task.update({
             where: { id: taskId },
             data: { deletedAt: new Date() },
         });
-        await (0, audit_js_1.logAction)(req.user?.id, 'TASK_DELETE', { id: taskId, title: task.title }, null);
+        await (0, audit_js_1.logAction)(req.user?.id, 'TASK_DELETE', { id: taskId, title: task.title }, null, {
+            req,
+            userEmail: req.user?.email,
+            targetEntity: 'Task',
+            targetId: taskId,
+        });
         return res.json({ message: 'Task deleted successfully (soft-deleted)' });
     }
     catch (error) {
