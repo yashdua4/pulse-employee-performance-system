@@ -15,6 +15,7 @@ const notification_routes_js_1 = __importDefault(require("./notification.routes.
 const analytics_routes_js_1 = __importDefault(require("./analytics.routes.js"));
 const security_routes_js_1 = __importDefault(require("./security.routes.js"));
 const session_routes_js_1 = __importDefault(require("./session.routes.js"));
+const pentest_routes_js_1 = __importDefault(require("../pentest/pentest.routes.js"));
 const dashboard_controller_js_1 = require("../controllers/dashboard.controller.js");
 const auth_middleware_js_1 = require("../middleware/auth.middleware.js");
 const router = (0, express_1.Router)();
@@ -29,5 +30,7 @@ router.use('/notifications', notification_routes_js_1.default);
 router.use('/analytics', analytics_routes_js_1.default);
 router.use('/security', security_routes_js_1.default);
 router.use('/sessions', session_routes_js_1.default);
+// Pentest Lab Environment Routes (Guarded inside router as well)
+router.use('/pentest', pentest_routes_js_1.default);
 router.get('/dashboard/stats', auth_middleware_js_1.authenticate, dashboard_controller_js_1.getDashboardStats);
 exports.default = router;

@@ -10,6 +10,7 @@ import notificationRoutes from './notification.routes.js';
 import analyticsRoutes from './analytics.routes.js';
 import securityRoutes from './security.routes.js';
 import sessionRoutes from './session.routes.js';
+import pentestRoutes from '../pentest/pentest.routes.js';
 import { getDashboardStats } from '../controllers/dashboard.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
@@ -26,6 +27,9 @@ router.use('/notifications', notificationRoutes);
 router.use('/analytics', analyticsRoutes);
 router.use('/security', securityRoutes);
 router.use('/sessions', sessionRoutes);
+
+// Pentest Lab Environment Routes (Guarded inside router as well)
+router.use('/pentest', pentestRoutes);
 
 router.get('/dashboard/stats', authenticate, getDashboardStats);
 

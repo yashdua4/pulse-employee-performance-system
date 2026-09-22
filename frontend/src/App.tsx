@@ -21,6 +21,9 @@ import { SecurityCenter } from './pages/SecurityCenter.js';
 import { SecurityDashboard } from './pages/SecurityDashboard.js';
 import { SecurityStatus } from './pages/SecurityStatus.js';
 import { PermissionMatrix } from './pages/PermissionMatrix.js';
+import { PentestDashboard } from './pages/Pentest/PentestDashboard.js';
+import { XSSDemo } from './pages/Pentest/XSSDemo.js';
+import { TokenDemo } from './pages/Pentest/TokenDemo.js';
 
 const ProtectedLayout: React.FC<{ children: React.ReactNode; roles?: Array<'ADMIN' | 'MANAGER' | 'EMPLOYEE'> }> = ({
   children,
@@ -202,6 +205,30 @@ const AppContent: React.FC = () => {
         element={
           <ProtectedLayout roles={['ADMIN']}>
             <PermissionMatrix />
+          </ProtectedLayout>
+        }
+      />
+      <Route
+        path="/pentest"
+        element={
+          <ProtectedLayout>
+            <PentestDashboard />
+          </ProtectedLayout>
+        }
+      />
+      <Route
+        path="/pentest/xss"
+        element={
+          <ProtectedLayout>
+            <XSSDemo />
+          </ProtectedLayout>
+        }
+      />
+      <Route
+        path="/pentest/token"
+        element={
+          <ProtectedLayout>
+            <TokenDemo />
           </ProtectedLayout>
         }
       />

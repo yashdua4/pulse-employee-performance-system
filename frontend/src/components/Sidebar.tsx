@@ -43,6 +43,7 @@ export const Sidebar: React.FC = () => {
     { to: '/performance', name: 'Performance', icon: Award },
     { to: '/leaves', name: 'Leaves', icon: PlaneTakeoff },
     { to: '/security', name: 'Security', icon: ShieldCheck },
+    { to: '/pentest', name: 'Pentest Lab', icon: ShieldAlert },
   ];
 
   if (user.role === 'ADMIN' || user.role === 'MANAGER') {
