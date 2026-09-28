@@ -36,8 +36,7 @@ interface AuthState {
   apiFetch: (path: string, options?: RequestInit) => Promise<any>;
 }
 
-export const API_URL = 'http://localhost:5000/api';
-
+export const API_URL = 'https://pulse-employee-performance-system.onrender.com/api';
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   accessToken: localStorage.getItem('pulse_access_token'),
@@ -61,11 +60,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   apiFetch: async (path: string, options: RequestInit = {}) => {
     const { accessToken, refreshSession } = get();
     const headers = new Headers(options.headers || {});
-    
+
     if (accessToken) {
       headers.set('Authorization', `Bearer ${accessToken}`);
     }
-    
+
     if (!(options.body instanceof FormData) && !headers.has('Content-Type')) {
       headers.set('Content-Type', 'application/json');
     }
