@@ -41,7 +41,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Security: Rate Limiting
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 60 * 1000, // 15 minutes
   max: 1000, // Relaxed global limit (1000 requests per 15 minutes)
   standardHeaders: true,
   legacyHeaders: false,
