@@ -47,7 +47,7 @@ export const Attendance: React.FC = () => {
 
       if (user?.role === 'ADMIN' || user?.role === 'MANAGER') {
         const empData = await apiFetch('/employees');
-        setEmployees(empData);
+        setEmployees(empData.employees);
       }
     } catch (err: any) {
       console.error(err);
